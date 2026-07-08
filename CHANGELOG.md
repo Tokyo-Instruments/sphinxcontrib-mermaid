@@ -1,8 +1,15 @@
 # Changelog
 
-## Unreleased
+## 2.0.3 (July 7, 2026)
+
+- Capture mmdc error message as string for nicer error display
+- Fix local JS module imports on root-level pages by ensuring a valid relative ES module specifier (#246)
+- Defer rendering of Mermaid diagrams hidden by a parent (e.g. Reveal.js slides, unopened tabs) until they become visible, fixing broken SVGs
+
+## 2.0.2 (April 30, 2026)
 
 - Add `mermaid_dark_theme` and `mermaid_light_theme` config options for configurable theme switching
+- Resolve local Mermaid/ELK/ZenUML/D3 JS paths under `html_static_path`
 
 ## 2.0.1 (March 5, 2026)
 
