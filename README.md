@@ -1,10 +1,3 @@
-> [!NOTE]
-> `sphinxcontrib-mermaid` is actively seeking new maintainers.
-> As the original creator, I'm no longer able to dedicate the time and
-> attention needed. If you're interested in contributing and helping to
-> drive this project forward, please see [this
-> issue](https://github.com/mgaitan/sphinxcontrib-mermaid/issues/148).
-
 # sphinxcontrib-mermaid
 
 [![test status](https://github.com/mgaitan/sphinxcontrib-mermaid/actions/workflows/test.yml/badge.svg)](https://github.com/mgaitan/sphinxcontrib-mermaid/actions/workflows/test.yml)
@@ -115,10 +108,7 @@ Then add `sphinxcontrib.mermaid` in `extensions` list of your project's
 `conf.py`:
 
 ```python
-extensions = [
-    ...,
-    'sphinxcontrib.mermaid'
-]
+extensions = [..., "sphinxcontrib.mermaid"]
 ```
 
 ## Directive options
@@ -154,6 +144,18 @@ name: test
 - `config`: JSON to pass through to the [mermaid configuration](https://mermaid.js.org/config/configuration.html). **NOTE**: The mermaid documentation uses YAML, but we must use JSON because Markdown processing of frontmatter will interfere.
 - `title`: Title to pass through to the [mermaid configuration](https://mermaid.js.org/config/configuration.html)
 
+## Translations
+
+For translated diagrams, store Mermaid source in an external `.mmd` file and
+provide localized files using Sphinx's
+[`figure_language_filename`](https://www.sphinx-doc.org/en/master/usage/configuration.html#confval-figure_language_filename)
+convention. For example, `diagram.mmd` and `diagram.de.mmd` can be referenced by
+the same directive, and Sphinx selects the file matching the active language.
+
+Mermaid captions are included in gettext catalogs and translated like other
+figure captions. Inline Mermaid source is not extracted as prose; use localized
+external files when diagram labels need translation.
+
 ## Config values
 
 ### `mermaid_output_format`
@@ -171,8 +173,8 @@ split using `shlex.split` to support multi-word commands.
 To avoid splitting, a list of strings can be specified. Examples:
 
 ```python
-mermaid_cmd = 'npx mmdc'
-mermeid_cmd = ['npx', '--no-install', 'mmdc']
+mermaid_cmd = "npx mmdc"
+mermeid_cmd = ["npx", "--no-install", "mmdc"]
 ```
 
 ### `mermaid_cmd_shell`
@@ -187,7 +189,7 @@ For individual parameters, a list of parameters can be added. Refer to
 [Examples](https://github.com/mermaid-js/mermaid-cli#usage):
 
 ```python
-mermaid_params = ['--theme', 'forest', '--width', '600', '--backgroundColor', 'transparent']
+mermaid_params = ["--theme", "forest", "--width", "600", "--backgroundColor", "transparent"]
 ```
 
 This will render the mermaid diagram with theme forest, 600px width
@@ -215,6 +217,20 @@ use this extra function.
 Optional override of arguments to `mermaid.initialize()`, passed in as
 a JSON. Defaults to `{ "startOnLoad": True}`.
 
+### `mermaid_config`
+
+Optional default for each Mermaid directive's `config` frontmatter. Set it to
+a dictionary in `conf.py`:
+
+```python
+mermaid_config = {
+    "theme": "base",
+    "themeVariables": {"primaryColor": "#BB2528"},
+}
+```
+
+A directive's `:config:` option replaces this default for that diagram.
+
 ### `mermaid_dark_theme`
 
 The mermaid theme to use when dark mode is detected. Defaults to `"dark"`.
@@ -237,7 +253,7 @@ mermaid_light_theme = "neutral"
 The version of mermaid that will be used to parse `raw` output in HTML
 files. This should match a version available on
 [https://www.jsdelivr.com/package/npm/mermaid](https://www.jsdelivr.com/package/npm/mermaid).
-The default is `"11.12.1"`.
+The default is `"12.0.0"`.
 
 ### `mermaid_use_local`
 
@@ -254,6 +270,11 @@ the other `*_use_local` options below.
 Whether to download and load the ELK JavaScript extensions. Defaults
 to False.
 
+Mermaid 12 bundles ELK and uses it as the default layout, so this
+option is ignored there. It only takes effect when `mermaid_version`
+is pinned below 12, or when `mermaid_use_local` points at a build that
+does not include ELK.
+
 ### `mermaid_include_zenuml`
 
 Whether to download and load the ZenuML JavaScript extensions.
@@ -262,7 +283,8 @@ Defaults to False.
 ### `mermaid_elk_version`
 
 The version of mermaid ELK renderer that will be used. The default is
-`"0.2.0"`.
+`"0.2.0"`. Only used when the ELK plugin is loaded separately, see
+[`mermaid_include_elk`](#mermaid_include_elk).
 
 ### `mermaid_zenuml_version`
 
@@ -278,6 +300,25 @@ See [`mermaid_use_local`](#mermaid_use_local) for accepted values.
 
 Optional location of a local copy of `mermaid-zenuml.esm.min.mjs`.
 See [`mermaid_use_local`](#mermaid_use_local) for accepted values.
+
+### `mermaid_icon_packs`
+
+Optional mapping of icon-pack names to
+[Iconify JSON URLs](https://mermaid.js.org/config/icons.html). Packs are
+registered lazily and fetched only when Mermaid uses an icon from them.
+Relative paths are resolved from `html_static_path`. This option applies to raw
+HTML output only.
+
+For example:
+
+```python
+mermaid_icon_packs = {
+    "logos": "https://cdn.jsdelivr.net/npm/@iconify-json/logos@1/icons.json",
+}
+```
+
+Icons from the pack can then be referenced with the registered name, such as
+`logos:aws-lambda` in an architecture diagram.
 
 ### `d3_use_local`
 
@@ -414,5 +455,5 @@ python:
 3. In your documentation `conf.py` file, add: :
 
 ```python
-mermaid_params = ['-p', 'puppeteer-config.json']
+mermaid_params = ["-p", "puppeteer-config.json"]
 ```

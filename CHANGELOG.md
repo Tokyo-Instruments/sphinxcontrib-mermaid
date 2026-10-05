@@ -1,5 +1,24 @@
 # Changelog
 
+## Unreleased
+
+- Upgrade Mermaid to 12.0.0, which bundles the ELK layouts and uses ELK as the default layout algorithm (#269)
+- Skip loading the separate `@mermaid-js/layout-elk` plugin when the configured Mermaid version already bundles it
+
+## 2.1.1 (July 19, 2026)
+
+- Preserve source metadata on generated Mermaid caption nodes so Sphinx extracts them into gettext catalogs and applies normal caption translations
+- Pass the existing mermaid image class through the HTML visitor so PNG output can be targeted consistently with CSS
+
+## 2.1.0 (July 18, 2026)
+
+- Add `mermaid_config` option for passing a global Mermaid configuration (#215)
+- Load the ZenUML plugin lazily, only on pages that contain a ZenUML diagram, and confine its injected stylesheet to the diagram subtree so it no longer restyles the host theme (#252)
+- Skip injecting the Mermaid JavaScript when the output format does not support it (#253)
+- Fix d3 zoom on nested SVGs (#179)
+- Fix fullscreen button positioning inconsistency (#225)
+- Fix interactions between the fullscreen, zoom, and lazy-render features (#254)
+
 ## 2.0.3 (July 7, 2026)
 
 - Capture mmdc error message as string for nicer error display

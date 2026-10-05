@@ -23,6 +23,7 @@ from json import dumps, loads
 from pathlib import Path
 from subprocess import PIPE, Popen
 from tempfile import TemporaryDirectory
+from typing import ClassVar
 
 import sphinx
 from docutils import nodes
@@ -34,6 +35,7 @@ from sphinx.application import Sphinx
 from sphinx.locale import _
 from sphinx.util import logging
 from sphinx.util.i18n import search_image_for_language
+from sphinx.util.nodes import set_source_info
 from sphinx.util.osutil import ensuredir
 from yaml import dump
 
@@ -51,6 +53,11 @@ _MERMAID_JS = (_MODULE_DIR / "default.js.j2").read_text(encoding="utf-8")
 mapname_re = re.compile(r'<map id="(.*?)"')
 
 
+def _dump_js(value):
+    """Serialize a value for use in an inline JavaScript module."""
+    return dumps(value).replace("<", "\\u003c")
+
+
 class mermaid(nodes.General, nodes.Inline, nodes.Element):
     pass
 
@@ -63,8 +70,7 @@ def figure_wrapper(directive, node, caption):
     parsed = nodes.Element()
     directive.state.nested_parse(ViewList([caption], source=""), directive.content_offset, parsed)
     caption_node = nodes.caption(parsed[0].rawsource, "", *parsed[0].children)
-    caption_node.source = parsed[0].source
-    caption_node.line = parsed[0].line
+    set_source_info(directive, caption_node)
     figure_node += caption_node
     return figure_node
 
@@ -82,7 +88,7 @@ class Mermaid(Directive):
     required_arguments = 0
     optional_arguments = 1
     final_argument_whitespace = False
-    option_spec = {
+    option_spec: ClassVar = {
         # Sphinx directives
         "name": directives.unchanged,
         "alt": directives.unchanged,
@@ -115,7 +121,7 @@ class Mermaid(Directive):
             except OSError:
                 return [
                     document.reporter.warning(
-                        "External Mermaid file %r not found or reading it failed" % filename,
+                        f"External Mermaid file {filename!r} not found or reading it failed",
                         line=self.lineno,
                     )
                 ]
@@ -160,6 +166,9 @@ class Mermaid(Directive):
         if "config" in self.options:
             mm_config += "\n"
             mm_config += dump({"config": loads(self.options["config"])})
+        elif self.state_machine.document.settings.env.config.mermaid_config is not None:
+            mm_config += "\n"
+            mm_config += dump({"config": self.state_machine.document.settings.env.config.mermaid_config})
         if "title" in self.options:
             mm_config += "\n"
             mm_config += f"title: {self.options['title']}"
@@ -236,7 +245,7 @@ def render_mm(self, code, options, _fmt, prefix="mermaid"):
         try:
             p = Popen(mm_args, shell=mermaid_cmd_shell, stdout=PIPE, stdin=PIPE, stderr=PIPE, text=True)
         except FileNotFoundError:
-            logger.warning("command %r cannot be run (needed for mermaid output), check the mermaid_cmd setting" % mermaid_cmd)
+            logger.warning(f"command {mermaid_cmd!r} cannot be run (needed for mermaid output), check the mermaid_cmd setting")
             return None, None
 
         stdout, stderr = p.communicate(code)
@@ -244,9 +253,9 @@ def render_mm(self, code, options, _fmt, prefix="mermaid"):
             logger.info(stdout)
 
         if p.returncode != 0:
-            raise MermaidError("Mermaid exited with error:\n[stderr]\n%s\n[stdout]\n%s" % (stderr, stdout))
+            raise MermaidError(f"Mermaid exited with error:\n[stderr]\n{stderr}\n[stdout]\n{stdout}")
         if not os.path.isfile(outfn):
-            raise MermaidError("Mermaid did not produce an output file:\n[stderr]\n%s\n[stdout]\n%s" % (stderr, stdout))
+            raise MermaidError(f"Mermaid did not produce an output file:\n[stderr]\n{stderr}\n[stdout]\n{stdout}")
         return relfn, outfn
 
 
@@ -267,7 +276,7 @@ def _render_mm_html_raw(self, node, code, options, prefix="mermaid", imgcls=None
     tag_template = """<pre {attr_defs} class="{classes}">
         {code}
     </pre>"""
-    attr_defs = ['{}="{}"'.format(k, v) for k, v in attrs.items()]
+    attr_defs = [f'{k}="{v}"' for k, v in attrs.items()]
     self.body.append(tag_template.format(attr_defs=" ".join(attr_defs), classes=" ".join(classes), code=self.encode(code)))
     raise nodes.SkipNode
 
@@ -279,9 +288,9 @@ def render_mm_html(self, node, code, options, prefix="mermaid", imgcls=None, alt
 
     try:
         if _fmt not in ("png", "svg"):
-            raise MermaidError("mermaid_output_format must be one of 'raw', 'png', 'svg', but is %r" % _fmt)
+            raise MermaidError(f"mermaid_output_format must be one of 'raw', 'png', 'svg', but is {_fmt!r}")
 
-        fname, outfn = render_mm(self, code, options, _fmt, prefix)
+        fname, _outfn = render_mm(self, code, options, _fmt, prefix)
     except MermaidError as exc:
         logger.warning(f"mermaid code {code!r}: " + str(exc))
         raise nodes.SkipNode
@@ -299,7 +308,7 @@ def render_mm_html(self, node, code, options, prefix="mermaid", imgcls=None, alt
             self.body.append(svgtag)
         else:
             if "align" in node:
-                self.body.append('<pre align="%s" class="align-%s">' % (node["align"], node["align"]))
+                self.body.append(f'<pre align="{node["align"]}" class="align-{node["align"]}">')
 
             self.body.append(f'<img src="{fname}" alt="{alt}" {imgcss}/>\n')
             if "align" in node:
@@ -309,7 +318,7 @@ def render_mm_html(self, node, code, options, prefix="mermaid", imgcls=None, alt
 
 
 def html_visit_mermaid(self, node):
-    render_mm_html(self, node, node["code"], node["options"])
+    render_mm_html(self, node, node["code"], node["options"], imgcls="mermaid")
 
 
 def render_mm_latex(self, node, code, options, prefix="mermaid"):
@@ -334,9 +343,9 @@ def render_mm_latex(self, node, code, options, prefix="mermaid"):
             logger.info(stdout)
 
         if p.returncode != 0:
-            raise MermaidError("PdfCrop exited with error:\n[stderr]\n%s\n[stdout]\n%s" % (stderr, stdout))
+            raise MermaidError(f"PdfCrop exited with error:\n[stderr]\n{stderr}\n[stdout]\n{stdout}")
         if not os.path.isfile(outfn):
-            raise MermaidError("PdfCrop did not produce an output file:\n[stderr]\n%s\n[stdout]\n%s" % (stderr, stdout))
+            raise MermaidError(f"PdfCrop did not produce an output file:\n[stderr]\n{stderr}\n[stdout]\n{stdout}")
 
         fname = "{filename[0]}-crop{filename[1]}".format(filename=os.path.splitext(fname))
 
@@ -355,7 +364,7 @@ def render_mm_latex(self, node, code, options, prefix="mermaid"):
             elif node["align"] == "right":
                 self.body.append("{\\hspace*{\\fill}")
                 post = "}"
-        self.body.append("%s\\sphinxincludegraphics{%s}%s" % (para_separator, fname, para_separator))
+        self.body.append(f"{para_separator}\\sphinxincludegraphics{{{fname}}}{para_separator}")
         if post:
             self.body.append(post)
 
@@ -368,12 +377,12 @@ def latex_visit_mermaid(self, node):
 
 def render_mm_texinfo(self, node, code, options, prefix="mermaid"):
     try:
-        fname, outfn = render_mm(self, code, options, "png", prefix)
+        fname, _outfn = render_mm(self, code, options, "png", prefix)
     except MermaidError as exc:
         logger.warning(f"mm code {code!r}: " + str(exc))
         raise nodes.SkipNode
     if fname is not None:
-        self.body.append("@image{%s,,,[mermaid],png}\n" % fname[:-4])
+        self.body.append(f"@image{{{fname[:-4]},,,[mermaid],png}}\n")
     raise nodes.SkipNode
 
 
@@ -416,6 +425,21 @@ def _resolve_local_url(url: str, context: dict) -> str:
     return resolved
 
 
+def _elk_is_bundled(config) -> bool:
+    """Whether the configured mermaid build already ships the ELK layouts.
+
+    Mermaid 12 bundles ELK (and uses it as the default layout), so the separate
+    ``@mermaid-js/layout-elk`` plugin must not be loaded on top of it. The
+    version of a local build is unknown, so the explicit configuration wins
+    there.
+    """
+    if config.mermaid_use_local or not config.mermaid_version:
+        return False
+    if config.mermaid_version == "latest":
+        return True
+    return Version(config.mermaid_version) >= Version("12.0.0")
+
+
 def install_js(
     app: Sphinx,
     pagename,
@@ -423,6 +447,10 @@ def install_js(
     context: dict,
     doctree: nodes.document | None,
 ) -> None:
+    # Build-time PNG and SVG output does not need client-side rendering.
+    if app.config.mermaid_output_format != "raw":
+        return
+
     # Skip for pages without Mermaid diagrams
     if doctree and not doctree.next_node(mermaid):
         return
@@ -438,7 +466,7 @@ def install_js(
         raise MermaidError("Requires mermaid js version 10.3.0 or later")
 
     _mermaid_elk_js_url = None
-    if app.config.mermaid_include_elk:
+    if app.config.mermaid_include_elk and not _elk_is_bundled(app.config):
         if app.config.mermaid_elk_use_local:
             _mermaid_elk_js_url = _resolve_local_url(app.config.mermaid_elk_use_local, context)
         elif app.config.mermaid_elk_version == "latest":
@@ -459,8 +487,24 @@ def install_js(
                 f"https://cdn.jsdelivr.net/npm/@mermaid-js/mermaid-zenuml@{app.config.mermaid_zenuml_version}/dist/mermaid-zenuml.esm.min.mjs"
             )
 
+    _mermaid_icon_packs = {name: _resolve_local_url(url, context) for name, url in app.config.mermaid_icon_packs.items()}
+
     _wrote_mermaid_run = False
-    _has_zoom = app.config.mermaid_d3_zoom
+    _d3_selector = ""
+    _d3_node_count = 0
+    if app.config.mermaid_d3_zoom:
+        _d3_selector = ".mermaid"
+        _d3_node_count = -1
+    elif doctree:
+        for mermaid_node in doctree.findall(mermaid):
+            if "zoom_id" not in mermaid_node:
+                continue
+            if _d3_selector:
+                _d3_selector += ", "
+            _d3_selector += f".mermaid[data-zoom-id={mermaid_node['zoom_id']}]"
+            _d3_node_count += 1
+
+    _has_zoom = bool(_d3_selector)
     _has_fullscreen = app.config.mermaid_fullscreen
     _button_text = app.config.mermaid_fullscreen_button
     _button_opacity = app.config.mermaid_fullscreen_button_opacity
@@ -471,26 +515,30 @@ def install_js(
     template_css = Template(_MERMAID_CSS)
     template_fullscreen_css = Template(_FULLSCREEN_CSS)
 
-    common_render_args = dict(
-        mermaid_js_url=_mermaid_js_url,
-        mermaid_init_config=dumps(app.config.mermaid_init_config),
-        mermaid_dark_theme=app.config.mermaid_dark_theme,
-        mermaid_light_theme=app.config.mermaid_light_theme,
-        mermaid_include_elk=_mermaid_elk_js_url is not None,
-        mermaid_include_zenuml=_mermaid_zenuml_js_url is not None,
-        mermaid_elk_js_url=_mermaid_elk_js_url,
-        mermaid_zenuml_js_url=_mermaid_zenuml_js_url,
-        common_css=template_css.render(
-            mermaid_width=_mermaid_width,
-            mermaid_height=_mermaid_height,
+    common_render_args = {
+        "mermaid_js_url": _dump_js(_mermaid_js_url),
+        "mermaid_init_config": _dump_js(app.config.mermaid_init_config),
+        "mermaid_dark_theme": _dump_js(app.config.mermaid_dark_theme),
+        "mermaid_light_theme": _dump_js(app.config.mermaid_light_theme),
+        "mermaid_include_elk": _mermaid_elk_js_url is not None,
+        "mermaid_include_zenuml": _mermaid_zenuml_js_url is not None,
+        "mermaid_elk_js_url": _dump_js(_mermaid_elk_js_url),
+        "mermaid_zenuml_js_url": _dump_js(_mermaid_zenuml_js_url),
+        "mermaid_include_icon_packs": bool(_mermaid_icon_packs),
+        "mermaid_icon_packs": _dump_js(_mermaid_icon_packs),
+        "common_css": _dump_js(
+            template_css.render(
+                mermaid_width=_mermaid_width,
+                mermaid_height=_mermaid_height,
+            )
         ),
-        button_text=_button_text,  # ignored
-        button_opacity=_button_opacity,  # ignored
-        add_fullscreen=_has_fullscreen,
-        add_zoom=_has_zoom,
-    )
+        "button_text": _dump_js(_button_text),  # ignored
+        "button_opacity": _dump_js(f"{_button_opacity}%"),  # ignored
+        "add_fullscreen": _dump_js(_has_fullscreen),
+        "add_zoom": _dump_js(_has_zoom),
+    }
 
-    if app.config.mermaid_output_format == "raw":
+    if _has_zoom:
         if app.config.d3_use_local:
             _d3_js_url = app.config.d3_use_local
         elif app.config.d3_version == "latest":
@@ -499,92 +547,29 @@ def install_js(
             _d3_js_url = f"https://cdn.jsdelivr.net/npm/d3@{app.config.d3_version}/dist/d3.min.js"
         app.add_js_file(_d3_js_url, priority=app.config.mermaid_js_priority)
 
-        if app.config.mermaid_d3_zoom:
-            if not _has_fullscreen:
-                _d3_js_script = template_js.render(
-                    fullscreen_css="",  # ignored
-                    d3_selector=".mermaid svg",
-                    d3_node_count=-1,
-                    **common_render_args,
+    if _has_fullscreen or _has_zoom:
+        _mermaid_js_script = template_js.render(
+            fullscreen_css=_dump_js(
+                template_fullscreen_css.render(
+                    mermaid_width=_mermaid_width,
+                    mermaid_height=_mermaid_height,
                 )
-                app.add_js_file(None, body=_d3_js_script, priority=app.config.mermaid_js_priority, type="module")
-                _wrote_mermaid_run = True
-        elif doctree:
-            mermaid_nodes = doctree.findall(mermaid)
-            _d3_selector = ""
-            count = 0
-            for mermaid_node in mermaid_nodes:
-                if "zoom_id" in mermaid_node:
-                    _zoom_id = mermaid_node["zoom_id"]
-                    if _d3_selector == "":
-                        _d3_selector += f".mermaid[data-zoom-id={_zoom_id}] svg"
-                    else:
-                        _d3_selector += f", .mermaid[data-zoom-id={_zoom_id}] svg"
-                    count += 1
-            if _d3_selector != "":
-                if not _has_fullscreen:
-                    _d3_js_script = template_js.render(
-                        fullscreen_css="",  # ignored
-                        d3_selector=_d3_selector,
-                        d3_node_count=count,
-                        **common_render_args,
-                    )
-                    app.add_js_file(None, body=_d3_js_script, priority=app.config.mermaid_js_priority, type="module")
-                    _wrote_mermaid_run = True
-
-    # Handle fullscreen feature
-    if _has_fullscreen and not _wrote_mermaid_run:
-        if _has_zoom:
-            # Fullscreen with zoom
-            _d3_selector = ".mermaid svg"
-            if not _d3_selector and doctree:
-                # Build selector for per-diagram zoom
-                mermaid_nodes = doctree.findall(mermaid)
-                count = 0
-                for mermaid_node in mermaid_nodes:
-                    if "zoom_id" in mermaid_node:
-                        _zoom_id = mermaid_node["zoom_id"]
-                        if _d3_selector == "":
-                            _d3_selector += f".mermaid[data-zoom-id={_zoom_id}] svg"
-                        else:
-                            _d3_selector += f", .mermaid[data-zoom-id={_zoom_id}] svg"
-                        count += 1
-                if _d3_selector == "":
-                    _d3_selector = ".mermaid svg"
-                    count = -1
-            else:
-                count = -1
-            _d3_js_script = template_js.render(
-                fullscreen_css=template_fullscreen_css.render(
-                    mermaid_width=_mermaid_width,
-                    mermaid_height=_mermaid_height,
-                ),
-                d3_selector=_d3_selector if _d3_selector else ".mermaid svg",
-                d3_node_count=count if _d3_selector else -1,
-                **common_render_args,
-            )
-            app.add_js_file(None, body=_d3_js_script, priority=app.config.mermaid_js_priority, type="module")
-            _wrote_mermaid_run = True
-        else:
-            # Fullscreen without zoom
-            _fullscreen_js_script = template_js.render(
-                fullscreen_css=template_fullscreen_css.render(
-                    mermaid_width=_mermaid_width,
-                    mermaid_height=_mermaid_height,
-                ),
-                d3_selector="",  # ignored
-                d3_node_count=-1,  # ignored
-                **common_render_args,
-            )
-            app.add_js_file(None, body=_fullscreen_js_script, priority=app.config.mermaid_js_priority, type="module")
-            _wrote_mermaid_run = True
+                if _has_fullscreen
+                else ""
+            ),
+            d3_selector=_dump_js(_d3_selector),
+            d3_node_count=_d3_node_count,
+            **common_render_args,
+        )
+        app.add_js_file(None, body=_mermaid_js_script, priority=app.config.mermaid_js_priority, type="module")
+        _wrote_mermaid_run = True
 
     if not _wrote_mermaid_run and _mermaid_js_url:
         app.add_js_file(
             None,
             body=template_js.render(
-                fullscreen_css="",
-                d3_selector="",  # ignored
+                fullscreen_css=_dump_js(""),
+                d3_selector=_dump_js(""),  # ignored
                 d3_node_count=-1,  # ignored
                 **common_render_args,
             ),
@@ -611,14 +596,15 @@ def setup(app):
     app.add_config_value("mermaid_cmd_shell", "False", "html")
     app.add_config_value("mermaid_pdfcrop", "", "html")
     app.add_config_value("mermaid_output_format", "raw", "html")
-    app.add_config_value("mermaid_params", list(), "html")
+    app.add_config_value("mermaid_params", [], "html")
     app.add_config_value("mermaid_verbose", False, "html")
-    app.add_config_value("mermaid_sequence_config", False, "html")
+    app.add_config_value("mermaid_sequence_config", None, "html")
+    app.add_config_value("mermaid_config", None, "env")
 
     app.add_config_value("mermaid_init_config", {"startOnLoad": False}, "html")
     app.add_config_value("mermaid_dark_theme", "dark", "html")
     app.add_config_value("mermaid_light_theme", "default", "html")
-    app.add_config_value("mermaid_version", "11.12.1", "html")
+    app.add_config_value("mermaid_version", "12.0.0", "html")
     app.add_config_value("mermaid_use_local", "", "html")
 
     # Plugins
@@ -628,6 +614,7 @@ def setup(app):
     app.add_config_value("mermaid_zenuml_version", "0.2.2", "html")
     app.add_config_value("mermaid_elk_use_local", "", "html")
     app.add_config_value("mermaid_zenuml_use_local", "", "html")
+    app.add_config_value("mermaid_icon_packs", {}, "html")
 
     app.add_config_value("d3_use_local", "", "html")
     app.add_config_value("d3_version", "7.9.0", "html")
